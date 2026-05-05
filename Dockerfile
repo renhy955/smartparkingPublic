@@ -31,10 +31,17 @@ WORKDIR /app
 # 使用国内apt源加速
 RUN sed -i 's/ports.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
 
+# 设置非交互式模式，避免时区配置弹窗
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update && apt-get install -y \
     openjdk-8-jdk \
     mysql-server \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# 设置时区
+RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && dpkg-reconfigure -f noninteractive tzdata
 
 # 设置Java环境变量
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
@@ -42,15 +49,8 @@ ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
 # 从构建阶段复制打包好的war文件
 COPY --from=builder /app/target/Smart-Parking.war .
 
-# 创建启动脚本
-RUN printf '%s\n' \
-    '#!/bin/bash' \
-    'service mysql start' \
-    'sleep 10' \
-    'mysql -u root -e "ALTER USER '\''root'\''@'\''localhost'\'' IDENTIFIED WITH mysql_native_password BY '\''root'\'\''; FLUSH PRIVILEGES;"' \
-    'mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS smart-parking DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"' \
-    'java -jar Smart-Parking.war --server.port=8100 --spring.profiles.active=dev' \
-    > /app/start.sh && chmod +x /app/start.sh
+# 创建启动脚本（修复SQL命令转义问题）
+RUN printf '#!/bin/bash\nservice mysql start\nsleep 10\nmysql -u root -e "ALTER USER '"'"'root'"'"'@'"'"'localhost'"'"' IDENTIFIED WITH mysql_native_password BY '"'"'root'"'"'; FLUSH PRIVILEGES;"\nmysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS \`smart-parking\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"\njava -jar Smart-Parking.war --server.port=8100 --spring.profiles.active=dev\n' > /app/start.sh && chmod +x /app/start.sh
 
 EXPOSE 8100 3306
 
